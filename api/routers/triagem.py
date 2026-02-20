@@ -139,73 +139,79 @@ async def endpoint_triagem(entrada: EntradaChat):
              sessao["historico"].append({"role": "assistant", "content": resposta_texto})
              return SaidaChat(resposta=resposta_texto, acao="continuar", id_sessao=id_sessao)
 
-        # Classificação de Intenção com LangChain através do LLM_Service
-        try:
-             instrucao = """
-             Você é um classificador de intenções bancárias.
-             Classifique a intenção atual do usuário em UMA das seguintes categorias exatas:
-             - credito (solicitar, consultar, pedir aumento)
-             - entrevista (atualizar cadastro, fazer entrevista)
-             - cambio (cotação de moedas, câmbio, dólar, euro)
-             - encerrar (tchau, fim, não quero)
-             - outros
+        # 1. Correspondência exata rápida (Bypass do LLM para cliques de Quick Reply)
+        msg_lower = mensagem.lower()
+        if msg_lower in ["crédito", "credito"]:
+            intencao = "credito"
+        elif msg_lower == "cotação de moedas":
+            intencao = "cambio"
+        elif msg_lower == "atualização cadastral":
+            intencao = "entrevista"
+        else:
+            # 2. Classificação de Intenção com LangChain através do LLM_Service para texto livre
+            try:
+                 instrucao = """
+                 Você é um classificador de intenções bancárias.
+                 Classifique a intenção atual do usuário em UMA das seguintes categorias exatas:
+                 - credito (solicitar, consultar, pedir aumento)
+                 - entrevista (atualizar cadastro, fazer entrevista)
+                 - cambio (cotação de moedas, câmbio, dólar, euro)
+                 - encerrar (tchau, fim, não quero)
+                 - outros
+                 
+                 Não dê explicações. Apenas a palavra exata da categoria em letras minúsculas.
+                 """
+                 intencao_bruta = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
+                 
+                 # Limpeza extra para modelos locais
+                 intencao_bruta = intencao_bruta.strip().lower()
+                 
+                 # Pega a intenção primária se o LLM tiver respondido uma frase inteira
+                 intencao = "outros"
+                 if "erro_llm" in intencao_bruta:
+                     intencao = "erro_llm"
+                 else:
+                     for palavra in intencao_bruta.replace(",", " ").replace(".", " ").replace(":", " ").split():
+                         if palavra in ["cambio", "câmbio", "cotação", "moeda", "moedas", "dólar", "euro"]:
+                             intencao = "cambio"
+                             break
+                         elif palavra in ["credito", "crédito", "empréstimo", "limite"]:
+                             intencao = "credito"
+                             break
+                         elif palavra in ["entrevista", "cadastro", "atualização"]:
+                             intencao = "entrevista"
+                             break
+                         elif palavra in ["encerrar", "sair", "tchau"]:
+                             intencao = "encerrar"
+                             break
+            except Exception as e:
+                 print(f"Excessão não tratada na triagem ao classificar LLM: {e}")
+                 intencao = "erro_llm"
              
-             Não dê explicações. Apenas a palavra exata da categoria em letras minúsculas.
-             """
-             intencao = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
              
-             # Limpeza extra para modelos locais
-             intencao = intencao.strip().lower()
-             
-             # Pega a intenção primária se o LLM tiver respondido uma frase inteira
-             intencao_final = "outros"
-             if "erro_llm" in intencao:
-                 intencao_final = "erro_llm"
-             else:
-                 for palavra in intencao.replace(",", " ").replace(".", " ").replace(":", " ").split():
-                     if palavra in ["cambio", "câmbio", "cotação", "moeda"]:
-                         intencao_final = "cambio"
-                         break
-                     elif palavra in ["credito", "crédito"]:
-                         intencao_final = "credito"
-                         break
-                     elif palavra in ["entrevista", "cadastro", "atualização"]:
-                         intencao_final = "entrevista"
-                         break
-                     elif palavra in ["encerrar", "sair", "tchau"]:
-                         intencao_final = "encerrar"
-                         break
-             
-             intencao = intencao_final
-             
-             print(f"DEBUG: Mensagem '{mensagem}' classificada como '{intencao}'")
-             
-             if "erro_llm" in intencao:
-                 resposta_texto = "Desculpe, meu sistema de interpretação está indisponível agora. Poderia repetir?"
-             elif intencao == "encerrar":
-                 resposta_texto = "Atendimento encerrado. Obrigado por escolher o Banco Ágil! Até logo."
-                 acao = "encerrar"
-                 sessao["estado"] = "ENCERRADO"
-             elif "credito" in intencao:
-                 resposta_texto = "" # Transferência silenciosa
-                 acao = "transferir"
-                 alvo = "AgenteCredito"
-                 sessao["voltou_da_entrevista"] = True # Força o agente a enviar a primeira msg
-             elif "entrevista" in intencao:
-                 resposta_texto = "" # Transferência silenciosa
-                 acao = "transferir"
-                 alvo = "AgenteEntrevista"
-             elif "cambio" in intencao:
-                 resposta_texto = "" # Transferência silenciosa
-                 acao = "transferir"
-                 alvo = "AgenteCambio"
-                 sessao["iniciando_cambio"] = True
-             else:
-                 resposta_texto = "Poderia reformular? Atendo demandas sobre (Crédito, Cotação de Moedas, Atualização Cadastral)."
-                 # Mantém estado AUTENTICADO
-        except Exception as e:
-             print(f"Excessão não tratada na triagem: {e}")
-             resposta_texto = "Tivemos um erro técnico ao processar sua solicitação. Tente novamente."
+        if "erro_llm" in intencao:
+            resposta_texto = "Desculpe, meu sistema de interpretação está indisponível agora. Poderia repetir?"
+        elif intencao == "encerrar":
+            resposta_texto = "Atendimento encerrado. Obrigado por escolher o Banco Ágil! Até logo."
+            acao = "encerrar"
+            sessao["estado"] = "ENCERRADO"
+        elif "credito" in intencao:
+            resposta_texto = "" # Transferência silenciosa
+            acao = "transferir"
+            alvo = "AgenteCredito"
+            sessao["voltou_da_entrevista"] = True # Força o agente a enviar a primeira msg
+        elif "entrevista" in intencao:
+            resposta_texto = "" # Transferência silenciosa
+            acao = "transferir"
+            alvo = "AgenteEntrevista"
+        elif "cambio" in intencao:
+            resposta_texto = "" # Transferência silenciosa
+            acao = "transferir"
+            alvo = "AgenteCambio"
+            sessao["iniciando_cambio"] = True
+        else:
+            resposta_texto = "Poderia reformular? Atendo demandas sobre (Crédito, Cotação de Moedas, Atualização Cadastral)."
+            # Mantém estado AUTENTICADO
 
     elif estado == "ENCERRADO":
         resposta_texto = "Este atendimento já foi encerrado."

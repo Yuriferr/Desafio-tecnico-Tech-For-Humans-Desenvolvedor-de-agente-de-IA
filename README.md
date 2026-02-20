@@ -1,5 +1,9 @@
 # 🏦 Banco Ágil - Assistente IA (Tech For Humans)
 
+<div align="center">
+  <img src="images/capa.png" alt="Capa do Projeto - Banco Ágil" width="100%">
+</div>
+
 Olá! Bem-vindo ao repositório do **Banco Ágil**. Criei este projeto como solução para o **Desafio Técnico para Desenvolvedor de Agente de IA da Tech For Humans**. 
 
 Meu objetivo principal aqui foi construir um sistema de chat inteligente avançado, onde o usuário sinta que está conversando com um único cérebro super capaz (o que chamamos de *Single-Agent Illusion*), mas que, por debaixo dos panos, rodam diversos micro-agentes especializados trabalhando em conjunto sob a orquestração de um modelo de linguagem local.

@@ -234,18 +234,24 @@ async def endpoint_credito(entrada: EntradaChat):
              resposta_texto = "Valor não identificado. Digite apenas o número (ex: 5000)."
 
     elif sub_estado == "OFERECER_ENTREVISTA":
-        instrucao = """
-        O agente ofereceu uma entrevista ("Quer fazer uma entrevista? Responda sim ou não").
-        O usuário respondeu. Classifique em UMA das opções exatas abaixo:
-        - sim (aceitou, quer fazer, ok, bora)
-        - nao (recusou, não quer, depois, ah não)
-        - encerrar (desistiu de falar, tchau, cancelar o atendimento como um todo)
-        - voltar (ver outros serviços, falar com triagem)
-        
-        Responda APENAS a categoria exata.
-        """
-        intencao = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
-        intencao = intencao.strip().lower()
+        msg_lower = mensagem.strip().lower()
+        if msg_lower in ["sim", "sim.", "s", "quero", "claro", "aceito", "bora"]:
+            intencao = "sim"
+        elif msg_lower in ["não", "nao", "n", "não.", "depois", "nunca"]:
+            intencao = "nao"
+        else:
+            instrucao = """
+            O agente ofereceu uma entrevista ("Quer fazer uma entrevista? Responda sim ou não").
+            O usuário respondeu. Classifique em UMA das opções exatas abaixo:
+            - sim (aceitou, quer fazer, ok, bora)
+            - nao (recusou, não quer, depois, ah não)
+            - encerrar (desistiu de falar, tchau, cancelar o atendimento como um todo)
+            - voltar (ver outros serviços, falar com triagem)
+            
+            Responda APENAS a categoria exata.
+            """
+            intencao = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
+            intencao = intencao.strip().lower()
 
         if "erro_llm" in intencao:
             resposta_texto = "Desculpe, meu classificador falhou. Deseja iniciar a entrevista? (Sim, Não)"
