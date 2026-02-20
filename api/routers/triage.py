@@ -4,7 +4,7 @@ from typing import Optional
 import pandas as pd
 import os
 import re
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
@@ -34,12 +34,10 @@ MAX_TENTATIVAS = 3
 ARQUIVO_DADOS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "clientes.csv")
 
 def obter_llm():
-    chave_api = os.getenv("GOOGLE_API_KEY")
-    if not chave_api:
-        raise ValueError("A variável de ambiente GOOGLE_API_KEY não foi definida.")
-    return ChatGoogleGenerativeAI(
-        google_api_key=chave_api,
-        model="gemini-3-flash-preview",
+    # O Ollama deve estar rodando localmente (padrão porta 11434)
+    # Modelo sugerido: llama3.2 (leve e eficiente)
+    return ChatOllama(
+        model="llama3.2",
         temperature=0.0
     )
 
@@ -84,10 +82,16 @@ async def endpoint_triagem(entrada: EntradaChat):
             "tentativas": 0,
             "dados_cliente": None,
             "cpf_temp": None,
-            "agente_atual": "triagem"
+            "agente_atual": "triagem",
+            "historico": [] # Lista de mensagens {role, content}
         })
     
     estado = sessao["estado"]
+    
+    # Adicionar mensagem do usuário ao histórico
+    if "historico" not in sessao: sessao["historico"] = []
+    sessao["historico"].append({"role": "user", "content": mensagem})
+    
     # ... (resto da lógica usa 'sessao' localmente, que é referencia ao dict, entao funciona)
     resposta_texto = ""
     acao = "continuar"
@@ -139,32 +143,65 @@ async def endpoint_triagem(entrada: EntradaChat):
     elif estado == "AUTENTICADO":
         # Classificação de Intenção com LangChain
         try:
+             # Formatar Histórico Recente (últimas 6 mensagens)
+             historico_recente = ""
+             for msg in sessao.get("historico", [])[-6:]:
+                 papel = "Usuário" if msg['role'] == 'user' else "Agente"
+                 conteudo = msg.get('content', '')
+                 if conteudo:
+                    historico_recente += f"{papel}: {conteudo}\n"
+
              llm = obter_llm()
              prompt = ChatPromptTemplate.from_template("""
-                Você é um classificador de intenções bancárias.
-                O usuário disse: "{input}"
-                
-                Classifique nas seguintes categorias:
-                - credito (aumento de limite, consultar limite)
-                - entrevista (atualizar dados, score, renda)
-                - cambio (moeda, cotação, dolar, euro)
-                - outros (assuntos gerais)
-                
-                Responda APENAS com a categoria (credito, entrevista, cambio, outros).
+                Você é um classificador de intenções bancárias. Considere o histórico.
+
+                Histórico Recente:
+                ------
+                {historico}
+                ------
+
+                Classifique a intenção ATUAL do usuário em uma das seguintes categorias:
+                - credito
+                - entrevista
+                - cambio
+                - encerrar
+                - outros
+
+                Usuário: "{input}"
+
+                Regra: Responda APENAS com o nome da categoria exata. Sem frases.
+                Exemplo: credito
+                Resposta:
             """)
              chain = prompt | llm | StrOutputParser()
-             intencao = chain.invoke({"input": mensagem}).strip().lower()
+             intencao = chain.invoke({"input": mensagem, "historico": historico_recente}).strip().lower()
              
-             if "credito" in intencao:
-                 resposta_texto = "Entendido. Vou transferi-lo para nosso especialista em Crédito."
+             # Limpeza extra para modelos locais
+             import re as regex_module
+             # Priorizar detecção da IA
+             intencao = intencao.strip().lower()
+             
+             if "credito" in intencao or "crédito" in intencao: intencao = "credito"
+             elif "entrevista" in intencao: intencao = "entrevista"
+             elif "cambio" in intencao or "câmbio" in intencao: intencao = "cambio"
+             elif "encerrar" in intencao or "sair" in intencao or "tchau" in intencao: intencao = "encerrar"
+             
+             print(f"DEBUG: Mensagem '{mensagem}' classificada como '{intencao}'")
+             
+             if intencao == "encerrar":
+                 resposta_texto = "Atendimento encerrado. Obrigado por escolher o Banco Ágil! Até logo."
+                 acao = "encerrar"
+                 sessao["estado"] = "ENCERRADO"
+             elif "credito" in intencao:
+                 resposta_texto = "Certo. Em relação a crédito, posso ajudar consultando seu limite atual ou analisando um pedido de aumento. Como deseja prosseguir?"
                  acao = "transferir"
                  alvo = "AgenteCredito"
              elif "entrevista" in intencao:
-                 resposta_texto = "Certo. Vou direcioná-lo para atualização cadastral."
+                 resposta_texto = "Podemos atualizar seu cadastro para tentar melhorar seu score. Vamos iniciar a entrevista?"
                  acao = "transferir"
                  alvo = "AgenteEntrevista"
              elif "cambio" in intencao:
-                 resposta_texto = "Ok. Vamos falar com o especialista em Câmbio."
+                 resposta_texto = "Posso informar cotações de moedas como Dólar, Euro e outras. Qual moeda você gostaria de cotar?"
                  acao = "transferir"
                  alvo = "AgenteCambio"
              else:
@@ -177,6 +214,8 @@ async def endpoint_triagem(entrada: EntradaChat):
         resposta_texto = "Este atendimento já foi encerrado."
         acao = "encerrar"
 
+    sessao["historico"].append({"role": "assistant", "content": resposta_texto})
+    
     return SaidaChat(
         resposta=resposta_texto,
         acao=acao,

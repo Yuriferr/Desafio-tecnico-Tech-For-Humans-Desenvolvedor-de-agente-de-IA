@@ -4,7 +4,7 @@ from typing import Optional
 import pandas as pd
 import os
 import datetime
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from dotenv import load_dotenv
@@ -36,10 +36,10 @@ ARQUIVO_SCORE_LIMITE = os.path.join(PASTA_DADOS, "score_limite.csv")
 
 # LLM
 def obter_llm():
-    chave = os.getenv("GOOGLE_API_KEY")
-    return ChatGoogleGenerativeAI(
-        google_api_key=chave,
-        model="gemini-3-flash-preview",
+    # O Ollama deve estar rodando localmente (padrão porta 11434)
+    # Modelo sugerido: llama3.2 (leve e eficiente)
+    return ChatOllama(
+        model="llama3.2",
         temperature=0.0
     )
 
@@ -88,6 +88,10 @@ async def endpoint_credito(entrada: EntradaChat):
             acao="encerrar",
             id_sessao=id_sessao
         )
+    
+    # Adicionar mensagem do usuário ao histórico global
+    if "historico" not in sessao: sessao["historico"] = []
+    sessao["historico"].append({"role": "user", "content": mensagem})
 
     # Estado Interno do Agente de Crédito
     # Se já estivermos "dentro" de um fluxo de solicitação, continuamos
@@ -106,18 +110,49 @@ async def endpoint_credito(entrada: EntradaChat):
     llm = obter_llm()
 
     if sub_estado == "MENU":
+        # Formatar Histórico Recente
+        historico_recente = ""
+        for msg in sessao.get("historico", [])[-6:]:
+            papel = "Usuário" if msg['role'] == 'user' else "Agente"
+            conteudo = msg.get('content', '')
+            if conteudo:
+                historico_recente += f"{papel}: {conteudo}\n"
+
         # Classificar se é consulta ou aumento
         prompt = ChatPromptTemplate.from_template("""
-            Você é um assistente de crédito. O cliente disse: "{input}"
-            Classifique a intenção:
-            - consultar_limite (saber quanto tem, ver limite)
-            - aumentar_limite (pedir mais crédito, aumentar, novo valor)
-            - outros (assuntos não relacionados a crédito)
+            Você é um classificador de intenções para um agente de crédito. Considere o histórico.
+            
+            Histórico Recente:
+            ------
+            {historico}
+            ------
 
-            Responda APENAS com a categoria.
+            O usuário disse: "{input}"
+            
+            Classifique em UMA das opções abaixo:
+            - consultar_limite (ver saldo, quanto tenho, limite atual)
+            - aumentar_limite (pedir mais, aumentar, novo limite, solicitação de aumento)
+            - encerrar (sair, tchau, obrigado, fim, cancelar)
+            - outros
+
+            Regra: Responda APENAS com o nome da categoria exata. Sem frases.
+            Exemplo: aumentar_limite
+            Resposta:
         """)
         chain = prompt | llm | StrOutputParser()
-        intencao = chain.invoke({"input": mensagem}).strip().lower()
+        intencao = chain.invoke({"input": mensagem, "historico": historico_recente}).strip().lower()
+
+        # Limpeza para modelos locais
+        if "aumentar" in intencao or "solicita" in intencao: intencao = "aumentar_limite"
+        elif "consultar" in intencao or "ver" in intencao or "saldo" in intencao: intencao = "consultar_limite"
+        elif "encerrar" in intencao or "sair" in intencao or "tchau" in intencao: intencao = "encerrar"
+        
+        # Detectar saída (mantido como fallback se a IA falhar muito, mas reduzido)
+        if intencao not in ["aumentar_limite", "consultar_limite", "encerrar"]:
+             if any(x in mensagem.lower() for x in ["não", "nao", "obrigado", "sair", "encerrar", "tchau", "nada"]):
+                  intencao = "encerrar"
+        
+        print(f"DEBUG CRÉDITO: Mensagem '{mensagem}' classificada como '{intencao}'")
 
         if "consultar" in intencao:
             resposta_texto = f"Seu limite de crédito atual é de R$ {limite_atual:.2f}. Posso ajudar com algo mais?"
@@ -127,61 +162,69 @@ async def endpoint_credito(entrada: EntradaChat):
             resposta_texto = "Qual o novo valor de limite que você deseja solicitar?"
             sessao["sub_estado_credito"] = "AGUARDANDO_VALOR"
         
+        elif intencao == "encerrar":
+            resposta_texto = "Entendido. Caso precise de mais alguma coisa, estamos à disposição. Até logo!"
+            acao = "encerrar"
+
         else:
              resposta_texto = "Posso ajudar com consulta de limite ou solicitação de aumento. O que deseja?"
 
-    elif sub_estado == "AGUARDANDO_VALOR":
-        # Extrair valor financeiro da mensagem
-        # Usar LLM ou Regex simples
-        import re
-        numeros = re.findall(r"[\d\.,]+", mensagem)
-        if numeros:
-            # Tentar limpar e converter o primeiro número encontrado
-            valor_str = numeros[0].replace(".", "").replace(",", ".") # Assumindo formato brasileiro 1.000,00 -> 1000.00
-            # Se tiver muitas falhas de parse, usar biblioteca ou LLM é melhor. Vamos simplificar:
-            try:
-                # Se tiver apenas um ponto e for milhar errado, ou virgula decimal... 
-                # Abordagem segura: extrair via LLM
-                prompt_valor = ChatPromptTemplate.from_template("""
-                    Extraia o valor financeiro (número float) da mensagem: "{input}".
-                    Responda apenas o número (ex: 5000.00). Se não achar, responda 0.
-                """)
-                chain_valor = prompt_valor | llm | StrOutputParser()
-                novo_limite = float(chain_valor.invoke({"input": mensagem}).strip())
-                
-                if novo_limite > 0:
-                    # Processar Solicitação
-                    aprovado = verificar_limite_score(score_atual, novo_limite)
-                    status = "aprovado" if aprovado else "rejeitado"
-                    
-                    # Registrar
-                    dados_solicitacao = {
-                        "cpf_cliente": cpf,
-                        "data_hora_solicitacao": datetime.datetime.now().isoformat(),
-                        "limite_atual": limite_atual,
-                        "novo_limite_solicitado": novo_limite,
-                        "status_pedido": status
-                    }
-                    registrar_solicitacao(dados_solicitacao)
-                    
-                    sessao["sub_estado_credito"] = "MENU" # Resetar sub-estado
 
-                    if aprovado:
-                        resposta_texto = f"Parabéns! Sua solicitação foi APROVADA de acordo com seu score atual de {score_atual}. Seu novo limite é R$ {novo_limite:.2f}."
-                        # Atualizar na sessão/banco (simulado na sessão apenas para consistencia visual)
-                        cliente["limite_credito"] = novo_limite 
-                        # Atualizar no CSV Clientes se necessário (não pedido explicitamente mas ideal)
-                    else:
-                        resposta_texto = ("Infelizmente, seu score atual não permite esse limite no momento. "
-                                          "Gostaria de falar com nosso Agente de Entrevista para atualizar seus dados e tentar melhorar seu score? (Responda Sim ou Não)")
-                        atualizar_sessao(id_sessao, "sub_estado_credito", "OFERECER_ENTREVISTA")
-                        sessao["sub_estado_credito"] = "OFERECER_ENTREVISTA" # Atualizar referencia local
-                else:
-                    resposta_texto = "Não entendi o valor. Poderia digitar novamente (ex: 5000)?"
-            except ValueError:
-                 resposta_texto = "Valor inválido. Tente novamente."
+    elif sub_estado == "AGUARDANDO_VALOR":
+        # Verificar cancelamento antes de processar valor
+        if any(x in mensagem.lower() for x in ["cancelar", "sair", "voltar", "não", "nao", "desisti"]):
+            resposta_texto = "Operação de aumento de limite cancelada. Posso ajudar com mais alguma coisa?"
+            sessao["sub_estado_credito"] = "MENU"
+            return SaidaChat(resposta=resposta_texto, acao="continuar", id_sessao=id_sessao)
+
+        import re as regex_module
+        # Procura por números no formato 0000 ou 0000.00 ou 0.000,00
+        numeros = regex_module.findall(r"[\d\.,]+", mensagem)
+        novo_limite = 0
+
+        if numeros:
+            for num_str in numeros:
+                 # Tentativa de normalizar formato BR (1.000,00) para Float
+                 clean_str = num_str
+                 if ',' in clean_str and '.' in clean_str:
+                     clean_str = clean_str.replace('.', '').replace(',', '.')
+                 elif ',' in clean_str:
+                     clean_str = clean_str.replace(',', '.')
+                 
+                 try:
+                     val = float(clean_str)
+                     if val > 0:
+                         novo_limite = val
+                         break
+                 except:
+                     continue
+        
+        if novo_limite > 0:
+            # Processar Solicitação OK
+            aprovado = verificar_limite_score(score_atual, novo_limite)
+            status = "aprovado" if aprovado else "rejeitado"
+            
+            dados_solicitacao = {
+                "cpf_cliente": cpf,
+                "data_hora_solicitacao": datetime.datetime.now().isoformat(),
+                "limite_atual": limite_atual,
+                "novo_limite_solicitado": novo_limite,
+                "status_pedido": status
+            }
+            registrar_solicitacao(dados_solicitacao)
+            
+            sessao["sub_estado_credito"] = "MENU"
+
+            if aprovado:
+                resposta_texto = f"Parabéns! Sua solicitação foi APROVADA de acordo com seu score atual de {score_atual}. Seu novo limite é R$ {novo_limite:.2f}."
+                cliente["limite_credito"] = novo_limite 
+            else:
+                resposta_texto = ("Infelizmente, seu score atual não permite esse limite no momento. "
+                                  "Quer fazer uma entrevista para atualizar seus dados e conferir se pode aumentar seu score? (Responda Sim ou Não)")
+                atualizar_sessao(id_sessao, "sub_estado_credito", "OFERECER_ENTREVISTA")
+                sessao["sub_estado_credito"] = "OFERECER_ENTREVISTA"
         else:
-            resposta_texto = "Por favor, informe o valor numérico desejado."
+             resposta_texto = "Não consegui entender o valor. Por favor, digite apenas o número (ex: 5000)."
 
     elif sub_estado == "OFERECER_ENTREVISTA":
         # Verificar sim/não
