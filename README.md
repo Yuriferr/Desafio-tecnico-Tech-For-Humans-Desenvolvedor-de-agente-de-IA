@@ -1,114 +1,114 @@
 # 🏦 Banco Ágil - Assistente IA (Tech For Humans)
 
-Bem-vindo ao repositório do **Banco Ágil**, um sistema inteligente e multi-agente focado no atendimento bancário via chat, desenvolvido para atender ao **Desafio Técnico para Desenvolvedor de Agente de IA da Tech For Humans**.
+Olá! Bem-vindo ao repositório do **Banco Ágil**. Criei este projeto como solução para o **Desafio Técnico para Desenvolvedor de Agente de IA da Tech For Humans**. 
 
-Este projeto simula uma assistente virtual conversacional avançada. O usuário interage com um bot que parece unificado ("Single-Agent Illusion"), mas que arquiteturalmente roda através de um sistema Multi-Agent (Routing) orquestrado por LLM local.
+Meu objetivo principal aqui foi construir um sistema de chat inteligente avançado, onde o usuário sinta que está conversando com um único cérebro super capaz (o que chamamos de *Single-Agent Illusion*), mas que, por debaixo dos panos, rodam diversos micro-agentes especializados trabalhando em conjunto sob a orquestração de um modelo de linguagem local.
+
+---
+
+## 🛠 A Minha Stack (Escolhas Técnicas e Justificativas)
+
+Para entregar uma solução moderna, rápida e aderente ao escopo do desafio, optei pela seguinte stack de tecnologias:
+
+- **Ollama + Llama 3.2**: Eu quis provar que o projeto poderia ter autonomia completa rodando `Local-First`, sem depender minimamente de faturamentos ou chaves da OpenAI. O Llama 3.2 é um modelo open-source espetacular, muito performático até em firmwares modestos, e com uma capacidade de raciocínio de alto nível, ideal para ser o cerne da lógica dos nossos agentes.
+- **LangChain**: O LangChain facilitou demais a integração com o Ollama, mas o principal motivo da minha escolha ocorreu devido aos seus "Output Parsers" e encadeamentos (*Chains*). Com ele, eu não recebo apenas um bloco de texto bagunçado da IA; consegui forçar o robô a entregar dados estruturados (JSON Strict), o que me permitiu extrair as variáveis exatas na hora da entrevista financeira do usuário.
+- **Python + FastAPI**: O *core* da aplicação. Escolhi o FastAPI por ser enxuto, extremamente rápido e, o mais importante, assíncrono por padrão (`async def`). Ao lidar com IAs e chamadas HTTP externas (como na cotação de moedas), o assincronismo é vital para manter o sistema responsivo. O sistema de roteadores prático (`APIRouter`) também ajudou imensamente a segmentar meus agentes.
+- **Vanilla JS + HTML + CSS**: No frontend, optei por trabalhar na "unha", sem usar frameworks como React ou Vue. Por se tratar de um desafio de Agente focado em backend, eu quis garantir que quem fosse avaliar pudesse apenas "dar dois cliques" no index.html e rodar tudo, sem se preocupar em baixar pacotes infinitos (`node_modules`) ou configurar build-tools. As chamadas assíncronas no frontend garantem muita agilidade, complementando perfeitamente a API.
+- **Arquivos CSV**: Como banco de dados das validações de regras e scores, utilizei abordagens diretas lendo arquivos `.csv`. Foi uma escolha puramente focada na eficiência de testes, dispensando que você precise levantar um container do PostgreSQL ou Mongo para brincar com o bot.
 
 ---
 
 ## 📖 Visão Geral do Projeto
 
-A aplicação provém uma interface de chat intuitiva e veloz onde o cliente pode se autenticar e realizar consultas bancárias cotidianas. Ao invés de fluxos de navegação estáticos e presos a menus numéricos (como URAs telefônicas), o projeto se baseia em **Inferência de Intenção via NLP (Natural Language Processing)**. 
+A ideia do sistema é aposentar os jurássicos fluxos numéricos de URA ("Digite 1 para X"). Como resultado, temos aqui a inferência de rotas alimentada puramente por contexto (*NLP*). 
 
-O cliente pode digitar em linguagem natural o que deseja (ex: "Quero ver a cotação do dólar" ou "Meu limite tá baixo, posso aumentar?") e o cérebro principal roteia e processa o pedido. Se o pedido for aumentar o limite e o Score não for forte o suficiente, a IA dinamicamente engatilha uma entrevista contextual para extrair os dados financeiros brutos do indivíduo (renda, dividas, dependentes), re-avaliar o grau de risco (Score) num arquivo em banco de dados e aplicar o aumento no limite.
+O cliente diz em linguagem humana: *"Eita, meu limite tá baixo, dá um jeito nisso?"*. Nesse momento, a nossa inteligência analisa a semântica da frase e despacha a requisição pro Agente correto. Caso o aumento não seja viável, ao invés do processo morrer, o sistema engatilha dinamicamente uma oportunidade: propõe ao usuário uma rápida Entrevista de Recálculo de Score para avaliar seus dados de forma humanizada.
 
 ---
 
 ## 🏗 Arquitetura do Sistema e Fluxos
 
-O Back-end foi construído em arquitetura modular utilizando **Python e FastAPI**. O ecossistema é quebrado da seguinte forma lógica:
+Em vez de empilhar mil linhas em um só arquivo, criei um sistema puramente modular. Nossa Arquitetura possui 2 pilares: Serviços Core Globais e os Agentes Independentes em Roteadores menores (`api/routers/`).
 
-### ✅ 1. Roteamento e Agentes Independentes (`api/routers/`)
-Para evitar código "Spaghetti", o core de negócio foi segmentado em 4 Agentes Autônomos (Micro-Bots):
+### 1. Sistema Multi-Agente
+- 🚪 **Agente de Triagem (`triagem.py`)**: O anfitrião do banco. É ele quem faz o "handshake" validando CPF e Data de Nascimento no nosso CSV. Depois de liberar o acesso, ele pergunta a vontade do cliente, interpreta a NLP, transfere o status ativamente para a próxima etapa em silêncio e desaparece se sentindo bem-sucedido.
+- 💳 **Agente de Crédito (`credito.py`)**: Especialista em regras de negócio. Ele quem cruza o score atual e verifica a política ("Score 400 permite Limite Y?"). Quando os cálculos batem no teto limite de forma negativa, ele atua ativamente engatilhando a nossa sub-rotina do Perito de Entrevistas.
+- 📋 **Agente de Entrevista (`entrevista.py`)**: O Perito de Risco de Conversão. Bate um papo simples para coletar informações base: Renda, Status de Emprego, Dependentes, Despesas e Dívidas. Pega todo o "lero-lero" falado pelo usuário, e usa o LangChain para compilar em um JSON, calculando a macrofórmula matemática que injeta via IO no CSV e eleva a chance do cliente. Re-transfere a aprovação para a malha do fluxo de crédito logrando êxito automático.
+- 🌍 **Agente de Câmbio (`cambio.py`)**: Consome a API REST gratuita (AwesomeAPI). Com a inteligência local, entende desde jargões isolados a perguntas polidas. Passando "O euro eita," ele extrai `EUR` e puxa a cotação imediata convertida na nossa moeda `BRL`.
 
-- **Agente de Triagem (`triagem.py`)**: Recepcionista do banco. Autentica via CPF e Data de Nascimento (`clientes.csv`). Capta a primeira mensagem de necessidade do cliente ("O que deseja fazer?") e realiza o Parsing usando LangChain para transferi-lo de forma implícita e sorrateira para o Agente especialista responsável.
-- **Agente de Crédito (`credito.py`)**: Gerencia consultas de saldo e requisições de aumento. Consulta e consolida regras de negócio puras (ex: "Score atual de 300 permite no máximo R$2.000 de limite?"). Se necessário, transfere o contexto para o agente de entrevista.
-- **Agente de Entrevista (`entrevista.py`)**: Atuando como Perito em Risco. Faz uma entrevista humanizada perguntando de ocupação profissional até volume de dependentes. Utiliza **Extrativismo Estruturado de Dados** com o LangChain (`JsonOutputParser`) para capturar respostas vagas textuais e converter em JSON estrito. Executa a fórmula de recálculo de Score e grava num pseudo-banco de dados estático. Transfere os resultados de volta ao crédito.
-- **Agente de Câmbio (`cambio.py`)**: Consome a API REST externa (AwesomeAPI) sob demanda. Puxa do LLM a entidade "Nome de Moeda", converte para as 3 Letras ISO Globais (ex: 'Libra' -> 'GBP') e devolve uma cotação instantânea versus BRL.
-
-### ✅ 2. Serviços Globais 
-- **LLM Service (`api/llm_service.py`)**: Central controladora do LangChain que consome o **Ollama (Llama 3.2)** para todos os subagentes. Suporta Prompt Engineering centralizado e Try/Catch preventivos de *Fallback* para quando a rede/IA falhar.
-- **Session Service (`api/sessao.py`)**: Atua como uma memória RAM/Cache "In-Memory" para interações do front. Armazena o ID da aba, histórico de chat (`Role: Content`) para fornecer Context Window à LLM e Variáveis de Estado (Máquina de Estados de conversação - `AGUARDANDO_VALOR`, `MENU`, `AUTENTICADO`).
+### 2. Backbones de Controle
+- **LLM Service (`llm_service.py`)**: Como um "Data-lake Promptário", esse arquivo controla o encadeamento e instâncias do Llama e abriga o Try/Catch anti-pane caso o Hardware local desligue ou retorne um Timeout.
+- **Memory Service / Sessão (`sessao.py`)**: Gerenciador In-Memory. Segrega o ID de chat da aba do front-end com um vetor persistente (`Role/Message`) mantendo forte controle do histórico. Também gerencia a máquina de estados como (`AGUARDANDO_CPF`, `AUTENTICADO`).
 
 ---
 
-## 🚀 Funcionalidades Implementadas
+## 🚀 Funcionalidades que Implementei
 
-- **Autenticação em Dois Passos**: Exige Validação sequencial do CPF (apenas 11 dígitos, ignorando pontuação na interface) seguido de Data de Nascimento.
-- **Cotação de Moedas em Tempo Real**: Uso de API Pública gratuita ("AwesomeAPI") baseada na identificação da intenção monetária ("Quanto está o BTC?").
-- **Workflow de Recálculo Concedido de Limite**: Abordagem inteligente onde um score ruim não encerra a jornada precocemente, mas permite segunda chance via análise de viabilidade atual (Entrevista).
-- **Single-Agent Illusion**: Botões baseados em 'Outros Serviços'. Os roteamentos técnicos (`acao: transferir, alvo: AgenteCredito`) não são revelados ao usuário, parecendo uma conversa fluida num único cérebro virtual inteligente.
-- **Resiliência de Hardware e Quedas (Try/Catch)**: Sistema tolerante a desastres, capturando exceções geradas por arquivos corrompidos baseados em travas (CSVs abertos) e travamentos bruscos do Backend Local AI (Ollama demorando para responder gera tratativa customizada ao invés de tela congelada).
-- **Interface Front-end (UI/UX)**: Layout desacoplado com Dark Mode minimalista "Tech for Humans". Utilização massiva de Quick-Replies interativos e balão emulativo de digitação assíncrono (Typing Indicator).
-
----
-
-## ⚔ Desafios Enfrentados e Soluções
-
-1. **Race Condition na Classificação de Intenções (Alucinação)**:
-   - *Desafio*: O Llama (Open-Source e leve) frequentemente gosta de dar explicações. Na hora da Triagem para pedir para cotar moeda, ele dizia *"Sua intenção não é Entrevista. Vejo que quer uma cotação de moedas (Câmbio)"*. O sistema Python, por ter lido primeiro a palavra *"Entrevista"*, errava em 10% dos casos a rota.
-   - *Solução*: Alterada a heurística de varredura Python (Apenas "if palavra in intenção"). Foi construída uma matriz Array iterável que para no momento (`break`) que acha o primeiro Match correspondente explícito sem pegar os ruidos residuais do Output da LLM.
-
-2. **Extração de Dados Imprecisos durante a Entrevista**:
-   - *Desafio*: O prompt extraía "Possui dividas?" como "sim, tenho" ou "ñ". Isso quebrava o parser Json e não alimentava os cálculos do novo de Score.
-   - *Solução*: Implementado o `JsonOutputParser` nativo do framework **LangChain** garantindo output JSON Strict, formatando a temperatura em `0.0` e usando chaves "Null", unindo a Fallbacks do Python ("Se não vier emprego Formal, limpa e força na raça Autônomo ou None...").
-
-3. **Demora excessiva para responder no front-end**:
-   - *Desafio*: Para cada letra ou botão clicado, o bot visual parecia "travado" ou recarregava inteiramente o index.html antes do robô trazer uma resposta, dando sensação de que o servidor era quebrado.
-   - *Solução*: Refatoração da mecânica do DOM com chamadas JavaScript puras `Fetch API` para não dar refresh na página e injeção do div `Typing Indicator` enquanto se aguarda o sinal do status-code 200 do FastAPI.
+- **Single-Agent Illusion**: Botões baseados em 'Outros Serviços'. Os roteamentos (`Ação Transferir`) nem chegam aos olhos do usuário; parece ser um só robô com mil habilidades.
+- **Cotação Dinâmica Externa**: Consumo via Request lib para pegar cotação ativa da internet.
+- **Workflow de Segunda Chance**: Processo interligado onde um score recusado é submetido sob a decisão do usuário a uma recálculo por entrevista ativa em tempo de execução, mudando a recusa do limite para aprovado na mesma conversa.
+- **Resiliência de Stack**: O uso exaustivo de validação (Try/Catch) que lida ativamente caso o Llama sofra pane ao cuspir um JSON errado ou o banco CSV demore a ser aberto pelo S.O., re-emitindo um feedback educado contornando que a página do frontend "morra" esperando sinal.
+- **Extrativismo de Dados Indiretos (Typos)**: Testado para ignorar erros de graúdo como "siiimbora fzer interwieem" e extrair perfeitamente o Boolean de "Aceitar" para prosseguir no fluxo da API.
 
 ---
 
-## 🛠 Escolhas Técnicas e Justificativas
+## ⚔ Desafios Enfrentados (e como eu os resolvi)
 
-- **FastAPI**: Escolhido pelo baixo overhead e pelo assincronismo (`async def`) nativo, o que é mandatório ao aguardar um processo extremamente lento como chamadas de LLM ou chamadas HTTP para Cotação. Também possui auto-documentação e roteador simples (`APIRouter`) ideal pra nossa separação em Agentes.
-- **Vanilla JS + HTML + CSS**: Foi preterido o uso de ReactJS ou Vue. Como sendo um desafio prático focado na IA, uma aplicação robusta frontend puro garante ausência de dependências NPM inchadas (`node_modules`), sendo só dar F5 e ver funcionando sem atritos de instalação Webpack/Vite para os avaliadores.
-- **Ollama / Llama-3.2**: A escolha de uma Stack `Local-First` foi intencional para provar proficiência de ponta a ponta que independe da conta corporativa das OpenAI. O modelo "Llama 3.2" é performático, pode rodar até em modesto hardware caseiro e exibe raciocínio de alto nível.
-- **LangChain**: Excelente em lidar com "Output Resolvers" e encadear mensagens contextuais em templates variáveis (Pipeline Chain -> `prompt | llm | string_parser`).
-- **Arquivos CSV como DB**: Opção amigável e puramente simulativa para não impor que o time técnico Tech for Humans necessite ligar containers Docker PostgreSQL na avaliação.
+Várias "cascas de bananas" arquiteturais apareceram, confira três delas que contornei:
+
+1. **A 'Alucinação' no Output limitando fluxos na Triagem**:
+   - *Desafio*: Quando perguntei sobre taxas do Câmbio, a LLM local em alguns casos divagou nas razões com o clássico texto "Não foi pedido Atualização Cadastral e sim Cotação". Como o IF do python lia a palavra "Atualização Cadastral" antes da palavra "Cotação", o robô enlouquecia jogando o cliente no limite.
+   - *Solução*: Refiz a matriz heurística de varredura no código Python da rota. Engessando para parar a verificação mal encontrasse à primeiríssima ocorrência das Tags explícitas que caracterizam as Rotas (`break` condicional). Problema resolvido categoricamente!
+
+2. **JSONs quebrando por respostas booleanas atípicas**:
+   - *Desafio*: Extrair "sim" e "não" para saber se tinha dívidas não funcionava direto, os usuários podiam escrever coisas como "credo nunca". O `OutputParser` puro explodia por invalidez semântica.
+   - *Solução*: Implementei o `JsonOutputParser` nativo forçando as estruturas usando Temperature à `0.0`. E, paralelamente, embuti Fallbacks Python no Back-End. ("Se tentar retornar Null nos dependentes, usa heurística do Python e varre se tem a palavra "não" para fixar o dependente a ZERO, salvando o sistema).
+
+3. **Demora aparente no Front-end gerando atrito de UX**:
+   - *Desafio*: O carregamento do Llama demorava entre 1 e 2 segundos. O usuário ficava na estaca zero olhando para uma tela sem sinal achando que o Request explodiu.
+   - *Solução*: Recurso Vanilla minimalista: Adicionei Injeções do Elemento Assíncrono com evento de DOM para gerar as benditas "Bolinhas quicando de Carregamento" escondendo que a infraestrutura estava num long-polling aguardando o Status 200 da API Fast.  
 
 ---
 
-## 🕹 Tutorial de Execução e Testes
+## 🕹 Passo a Passo: Como rodar e testar o projeto
 
-### Pré-requisitos
-Ter instalado no sistema operacional:
-- **Python 3.10+**
-- **Ollama** (para rodar a IA localmente sem chave da OpenAI). Baixe em: `https://ollama.com`
+É muito fácil fazer a máquina funcionar. Você testará todo o complexo orquestrador em apenas 4 passos:
 
-### 1. Preparando o Ambiente (Backend)
-1. Clone este repositório para seu ambiente local.
-2. Na raiz da pasta, crie um ambiente virtual (Opcional, mas recomendado):
-   ```bash
-   python -m venv venv
-   # Ative-o:
-   # No Windows: venv\Scripts\activate
-   # No Mac/Linux: source venv/bin/activate
-   ```
-3. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Pré-requisitos Básicos:
+Eu estruturei o sistema para usar as seguintes premissas (que eu recomendo ter instalado):
+- **Python 3.10+** (Para a Engine de Agentes rodarem via Fast)
+- **Ollama** (Motor de IA offline para nos dar inferência segura). Instale acessando: `https://ollama.com`
 
-### 2. Baixando o Modelo de Inteligência Artificial Local
-Inicie o processo do seu "Motor" Ollama no terminal para puxar o cérebro usado em nosso Agente:
+### Passo 1. Cérebro Base (LLM Local)
+Abra seu terminal e baixe os pesos do nosso agente executando:
 ```bash
 ollama run llama3.2
 ```
-*Se for a primeira vez, ele irá baixar o modelo (cerca de 2GB).* Assim que iniciar um prompt shell `>>>`, pode fechá-lo (Ctrl+D), o modelo já estará armazenado e seu hardware habilitado para ouvi-lo.
+Ele instalará na sua máquina *(aprox 2GB)*. Assim que ver um prompt `>>>` esperando sua mensagem, pode fechar a janela com `Ctrl+D` ou sair dele. Todo o sistema do modelo já ficou habilitado.
 
-### 3. Rodando a Aplicação
-Dentro da pasta `api/` execute o servidor ASGI Uvicorn:
+### Passo 2. Ligando a Usina da API Python
+Aponte o terminal para a nossa pasta baixada e siga para instalar nossos libs e ligar:
 ```bash
 cd api
+# Recomendo muito usar uma VENV (python -m venv venv), caso contrário instale livremente:
+pip install -r requirements.txt
+
+# Inicie ativando o comando uvicorn com recarga estática exclusando os csv dinâmicos (Evita re-starts durante os testes simulados de salvar variáveis no csv):
 python main.py
 ```
-O console deverá mostrar o servidor rodando em `http://0.0.0.0:8000`.
+A API vai piscar informando que acordou no IP `[http://0.0.0.0:8000]`
 
-### 4. Abrindo o Chat e Testando
-Nenhum compilador adicional front-end é requerido!
-Basta encontrar o arquivo `index.html` na pasta `/frontend` e abri-lo clicando duas vezes no seu navegador de preferência (Chrome, Edge, etc).
+### Passo 3. Abrindo a Porta do Banco
+Tudo pronto. Como eu montei o front para se desprender de Node e React para seu total conforto, tudo que você fará é abrir o diretório base da raiz (fora de `/api/`), ir para a pasta `/frontend/`  e **abrir o arquivo `index.html` em seu navegador** duplo-clique básico.
 
-* **Teste 1 (Autenticação)**: Envie o CPF de John Doe simulado no CSV `12345678901`, informando `01/01/1990` na Data.
-* **Teste 2 (Câmbio)**: Clique em opções/digite "Gostaria de cotar o USD". 
-* **Teste 3 (Roteamento de Entrevista Elevada)**: Com John Doe, peça para *Solicitar Aumento*, Peça a quantidade esbanjadora de `6500` reais. O limite será rejeitado por score baixo. Aceite a entrevista, dê informações como *Ocupação Formal*, *Renda alta*, e *Nenhuma dívida*. Observe o Score subir em tempo real e em seguida refaça a requisição do crédito e colha os frutos do aprovação.
+### Passo 4. Guia Simulado de Uso Prático (O Teste final):
+Divirta-se. Use o seguinte cenário "Golden-Path Completo":
+
+1. Simule como "João", envie o CPF simulado (`12345678900`) e passe as datas falsas `01/01/1980`.
+2. Como um cliente insatisfeito, ignore as opções globais bonitas do template que criei, escreva solto: *"Kero aumentar tudo meus crédito"*.
+3. O robô vai reagir te oferecendo o Menu respectivo. Puxando o botão para o alto digite um limite ignorante de `500000` *(Ou quinhentos mil inteiros)*. Observe como as matrizes internas o bloqueiam por ser irreal para o score de João mas logo em seguida abrem a Entrevista!
+4. Responda positivamente para a entrevista. Aceite, simule, diga que sua ocupação é desempregado para observar se ele absorve para o JSON e finaliza o recálculo em aprovação limpa.
+5. Termine escrevendo: *"Legal, quero ver a cotação do BTC (Bitcoin)"* e as bolinhas de chat mostrarão o motor chamando as rotas da web trazendo os centavos online no fechamento.
+
+### Enjoy The Ride :D
+Espero que você se divirta testando o código tanto quanto eu me diverti desenvolvendo. Foi incrível poder juntar o ecossistema LLM open-source dentro da casca corporativa da Tech for Humans!
