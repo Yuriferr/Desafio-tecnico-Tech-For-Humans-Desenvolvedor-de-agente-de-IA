@@ -4,15 +4,13 @@ from typing import Optional
 import pandas as pd
 import os
 import re
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 
-# Importar Sessão Compartilhada
+# Importar Sessão e LLM_Service Compartilhados
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from sessao import obter_sessao, criar_sessao, atualizar_sessao
+from llm_service import consultar_llm
 
 # Configuração
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
@@ -29,17 +27,9 @@ class SaidaChat(BaseModel):
     alvo: Optional[str] = None # nome do agente se houver transferência
     id_sessao: str
 
-# Configuração LLM
+# Configuração GERAL
 MAX_TENTATIVAS = 3
 ARQUIVO_DADOS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "clientes.csv")
-
-def obter_llm():
-    # O Ollama deve estar rodando localmente (padrão porta 11434)
-    # Modelo sugerido: llama3.2 (leve e eficiente)
-    return ChatOllama(
-        model="llama3.2",
-        temperature=0.0
-    )
 
 # Lógica de Autenticação
 def autenticar_cliente(cpf_usuario, data_usuario):
@@ -67,7 +57,7 @@ def autenticar_cliente(cpf_usuario, data_usuario):
         return False, None
     except Exception as e:
         print(f"Erro na autenticação: {e}")
-        return False, None
+        return False, "erro_db"
 
 @router.post("/", response_model=SaidaChat)
 async def endpoint_triagem(entrada: EntradaChat):
@@ -99,7 +89,7 @@ async def endpoint_triagem(entrada: EntradaChat):
 
     # Máquina de Estados
     if estado == "SAUDACAO":
-        resposta_texto = "Olá! Bem-vindo ao Banco Ágil. Sou seu assistente virtual. Para começarmos, por favor, informe seu CPF."
+        resposta_texto = "Olá! Bem-vindo ao Banco Ágil. Sou o assistente virtual. Informe seu CPF, por favor."
         sessao["estado"] = "AGUARDANDO_CPF"
     
     elif estado == "AGUARDANDO_CPF":
@@ -108,10 +98,10 @@ async def endpoint_triagem(entrada: EntradaChat):
         
         if len(digitos) == 11:
             sessao["cpf_temp"] = "".join(digitos)
-            resposta_texto = "Obrigado. Agora, por favor, informe sua data de nascimento (DD/MM/AAAA)."
+            resposta_texto = "Obrigado! Agora sua data de nascimento, no formato DD/MM/AAAA."
             sessao["estado"] = "AGUARDANDO_DATA_NASCIMENTO"
         else:
-            resposta_texto = "CPF inválido. Por favor, digite um CPF válido (11 dígitos, apenas números)."
+            resposta_texto = "CPF inválido. Certifique-se de digitar 11 dígitos."
             # Mantém no estado atual
             
     elif estado == "AGUARDANDO_DATA_NASCIMENTO":
@@ -126,7 +116,10 @@ async def endpoint_triagem(entrada: EntradaChat):
             if sucesso:
                 sessao["dados_cliente"] = cliente
                 sessao["estado"] = "AUTENTICADO"
-                resposta_texto = f"Autenticação realizada com sucesso, {cliente['nome']}! Em que posso ajudar hoje? (Crédito, Câmbio, Entrevista)"
+                resposta_texto = f"Autenticação realizada com sucesso, {cliente['nome']}! Em que posso ajudar hoje? (Crédito, Cotação de Moedas, Atualização Cadastral)"
+            elif cliente == "erro_db":
+                resposta_texto = "Desculpe, nosso sistema de cadastro está temporariamente indisponível. Por favor, tente novamente mais tarde."
+                # Mantém AGUARDANDO_DATA_NASCIMENTO mas não gasta tentativa
             else:
                 sessao["tentativas"] += 1
                 if sessao["tentativas"] >= MAX_TENTATIVAS:
@@ -135,80 +128,84 @@ async def endpoint_triagem(entrada: EntradaChat):
                     sessao["estado"] = "ENCERRADO"
                 else:
                     restantes = MAX_TENTATIVAS - sessao["tentativas"]
-                    resposta_texto = f"Dados incorretos. Você tem mais {restantes} tentativas. Por favor, informe o CPF novamente."
+                    resposta_texto = f"Dados não conferem. Tentativas restantes: {restantes}. Informe seu CPF novamente."
                     sessao["estado"] = "AGUARDANDO_CPF" # Reinicia fluxo de autenticação
         else:
-             resposta_texto = "Data inválida ou formato incorreto. Por favor, use o formato DD/MM/AAAA."
+             resposta_texto = "Data inválida. Use o formato DD/MM/AAAA."
 
     elif estado == "AUTENTICADO":
-        # Classificação de Intenção com LangChain
+        if not mensagem:
+             resposta_texto = "Com o que mais posso ajudá-lo hoje? (Crédito, Cotação de Moedas, Atualização Cadastral)"
+             sessao["historico"].append({"role": "assistant", "content": resposta_texto})
+             return SaidaChat(resposta=resposta_texto, acao="continuar", id_sessao=id_sessao)
+
+        # Classificação de Intenção com LangChain através do LLM_Service
         try:
-             # Formatar Histórico Recente (últimas 6 mensagens)
-             historico_recente = ""
-             for msg in sessao.get("historico", [])[-6:]:
-                 papel = "Usuário" if msg['role'] == 'user' else "Agente"
-                 conteudo = msg.get('content', '')
-                 if conteudo:
-                    historico_recente += f"{papel}: {conteudo}\n"
-
-             llm = obter_llm()
-             prompt = ChatPromptTemplate.from_template("""
-                Você é um classificador de intenções bancárias. Considere o histórico.
-
-                Histórico Recente:
-                ------
-                {historico}
-                ------
-
-                Classifique a intenção ATUAL do usuário em uma das seguintes categorias:
-                - credito
-                - entrevista
-                - cambio
-                - encerrar
-                - outros
-
-                Usuário: "{input}"
-
-                Regra: Responda APENAS com o nome da categoria exata. Sem frases.
-                Exemplo: credito
-                Resposta:
-            """)
-             chain = prompt | llm | StrOutputParser()
-             intencao = chain.invoke({"input": mensagem, "historico": historico_recente}).strip().lower()
+             instrucao = """
+             Você é um classificador de intenções bancárias.
+             Classifique a intenção atual do usuário em UMA das seguintes categorias exatas:
+             - credito (solicitar, consultar, pedir aumento)
+             - entrevista (atualizar cadastro, fazer entrevista)
+             - cambio (cotação de moedas, câmbio, dólar, euro)
+             - encerrar (tchau, fim, não quero)
+             - outros
+             
+             Não dê explicações. Apenas a palavra exata da categoria em letras minúsculas.
+             """
+             intencao = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
              
              # Limpeza extra para modelos locais
-             import re as regex_module
-             # Priorizar detecção da IA
              intencao = intencao.strip().lower()
              
-             if "credito" in intencao or "crédito" in intencao: intencao = "credito"
-             elif "entrevista" in intencao: intencao = "entrevista"
-             elif "cambio" in intencao or "câmbio" in intencao: intencao = "cambio"
-             elif "encerrar" in intencao or "sair" in intencao or "tchau" in intencao: intencao = "encerrar"
+             # Pega a intenção primária se o LLM tiver respondido uma frase inteira
+             intencao_final = "outros"
+             if "erro_llm" in intencao:
+                 intencao_final = "erro_llm"
+             else:
+                 for palavra in intencao.replace(",", " ").replace(".", " ").replace(":", " ").split():
+                     if palavra in ["cambio", "câmbio", "cotação", "moeda"]:
+                         intencao_final = "cambio"
+                         break
+                     elif palavra in ["credito", "crédito"]:
+                         intencao_final = "credito"
+                         break
+                     elif palavra in ["entrevista", "cadastro", "atualização"]:
+                         intencao_final = "entrevista"
+                         break
+                     elif palavra in ["encerrar", "sair", "tchau"]:
+                         intencao_final = "encerrar"
+                         break
+             
+             intencao = intencao_final
              
              print(f"DEBUG: Mensagem '{mensagem}' classificada como '{intencao}'")
              
-             if intencao == "encerrar":
+             if "erro_llm" in intencao:
+                 resposta_texto = "Desculpe, meu sistema de interpretação está indisponível agora. Poderia repetir?"
+             elif intencao == "encerrar":
                  resposta_texto = "Atendimento encerrado. Obrigado por escolher o Banco Ágil! Até logo."
                  acao = "encerrar"
                  sessao["estado"] = "ENCERRADO"
              elif "credito" in intencao:
-                 resposta_texto = "Certo. Em relação a crédito, posso ajudar consultando seu limite atual ou analisando um pedido de aumento. Como deseja prosseguir?"
+                 resposta_texto = "" # Transferência silenciosa
                  acao = "transferir"
                  alvo = "AgenteCredito"
+                 sessao["voltou_da_entrevista"] = True # Força o agente a enviar a primeira msg
              elif "entrevista" in intencao:
-                 resposta_texto = "Podemos atualizar seu cadastro para tentar melhorar seu score. Vamos iniciar a entrevista?"
+                 resposta_texto = "" # Transferência silenciosa
                  acao = "transferir"
                  alvo = "AgenteEntrevista"
              elif "cambio" in intencao:
-                 resposta_texto = "Posso informar cotações de moedas como Dólar, Euro e outras. Qual moeda você gostaria de cotar?"
+                 resposta_texto = "" # Transferência silenciosa
                  acao = "transferir"
                  alvo = "AgenteCambio"
+                 sessao["iniciando_cambio"] = True
              else:
-                 resposta_texto = "Desculpe, não entendi bem. Poderia reformular? Posso ajudar com Crédito, Câmbio ou Atualização de Cadastro."
+                 resposta_texto = "Poderia reformular? Atendo demandas sobre (Crédito, Cotação de Moedas, Atualização Cadastral)."
                  # Mantém estado AUTENTICADO
         except Exception as e:
-             resposta_texto = f"Erro ao processar sua solicitação: {str(e)}"
+             print(f"Excessão não tratada na triagem: {e}")
+             resposta_texto = "Tivemos um erro técnico ao processar sua solicitação. Tente novamente."
 
     elif estado == "ENCERRADO":
         resposta_texto = "Este atendimento já foi encerrado."

@@ -4,86 +4,264 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Banco Ágil - Atendimento IA</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>T4H Agente IA</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg-color: #031D15;
+            --text-color: #f1f2f6;
+            --primary: #00D573;
+            --primary-hover: #00b05e;
+            --msg-user: #00D573;
+            --msg-user-text: #031D15;
+            --msg-agent: #122c23;
+            --border-color: #1e3a2f;
+        }
+
         body {
-            background-color: #f4f7f6;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', -apple-system, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
         }
 
         .chat-container {
-            max-width: 600px;
-            margin: 30px auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-            height: 80vh;
+            width: 100%;
+            max-width: 900px;
             display: flex;
             flex-direction: column;
+            height: 100%;
         }
 
         .chat-header {
-            background: #007bff;
-            color: white;
-            padding: 15px;
-            text-align: center;
-            font-weight: bold;
+            padding: 20px 30px;
+            font-size: 1.25rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(3, 29, 21, 0.95);
+        }
+
+        .chat-header i {
+            color: var(--primary);
+            font-size: 1.5rem;
         }
 
         .chat-box {
             flex: 1;
-            padding: 20px;
+            padding: 30px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 20px;
         }
 
         .message {
             max-width: 80%;
-            padding: 10px 15px;
-            border-radius: 20px;
-            word-wrap: break-word;
+            padding: 15px 20px;
+            line-height: 1.5;
+            font-size: 1rem;
+            animation: fadeIn 0.3s ease-in-out;
+            position: relative;
         }
 
         .message.user {
             align-self: flex-end;
-            background-color: #007bff;
-            color: white;
-            border-bottom-right-radius: 2px;
+            background-color: var(--msg-user);
+            color: var(--msg-user-text);
+            border-radius: 20px 20px 0 20px;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(0, 213, 115, 0.15);
         }
 
         .message.agent {
             align-self: flex-start;
-            background-color: #e9ecef;
-            color: #333;
-            border-bottom-left-radius: 2px;
+            background-color: var(--msg-agent);
+            color: var(--text-color);
+            border-radius: 20px 20px 20px 0;
+            border: 1px solid var(--border-color);
+        }
+
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: -10px;
+            align-self: flex-start;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+
+        .quick-reply-btn {
+            background: transparent;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            padding: 10px 18px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-reply-btn:hover {
+            background: var(--primary);
+            color: var(--msg-user-text);
+            box-shadow: 0 4px 12px rgba(0, 213, 115, 0.3);
+        }
+
+        .global-actions {
+            display: flex;
+            gap: 15px;
+            padding: 15px 30px;
+            border-top: 1px solid var(--border-color);
+            justify-content: center;
+            background: var(--bg-color);
+        }
+
+        .global-actions button {
+            background: rgba(18, 44, 35, 0.5);
+            border: 1px solid var(--border-color);
+            color: #a0b5ab;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .global-actions button:hover {
+            color: var(--primary);
+            border-color: var(--primary);
         }
 
         .chat-input-area {
-            padding: 15px;
-            background: #f8f9fa;
-            border-top: 1px solid #ddd;
+            padding: 20px 30px;
             display: flex;
-            gap: 10px;
+            gap: 15px;
+            align-items: center;
+            background: var(--bg-color);
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            background: var(--msg-agent);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 16px 24px;
+            border-radius: 30px;
+            outline: none;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input-area input:focus {
+            border-color: var(--primary);
+        }
+
+        .btn-send {
+            background: var(--primary);
+            color: var(--msg-user-text);
+            border: none;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .btn-send:hover {
+            transform: scale(1.05);
+            background: var(--primary-hover);
+        }
+
+        .typing-indicator {
+            display: none;
+            align-self: flex-start;
+            background-color: var(--msg-agent);
+            padding: 15px 20px;
+            border-radius: 20px 20px 20px 0;
+            color: var(--primary);
+            font-size: 0.95rem;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #2a4a3c;
+        }
+
+        .disabled {
+            opacity: 0.5;
+            pointer-events: none;
         }
     </style>
 </head>
 
 <body>
-
     <div class="chat-container">
         <div class="chat-header">
-            Atendimento Banco Ágil
+            <i class="fas fa-robot"></i>
+            <span>Assistente IA | Tech For Humans</span>
         </div>
+
         <div class="chat-box" id="chatBox">
-            <div class="message agent">Olá! Bem-vindo ao Banco Ágil. Como posso ajudar?</div>
+            <!-- Messages renderadas dinamicamente -->
         </div>
+
+        <div class="typing-indicator" id="typingIndicator">
+            <i class="fas fa-circle-notch fa-spin"></i> Processando...
+        </div>
+
+        <div class="global-actions" id="globalActions">
+            <button onclick="sendQuickReply('Ver outros serviços')"><i class="fas fa-bars"></i> Outros Serviços</button>
+            <button onclick="sendQuickReply('Encerrar o atendimento')"><i class="fas fa-power-off"></i>
+                Encerrar</button>
+        </div>
+
         <div class="chat-input-area">
-            <input type="text" id="messageInput" class="form-control" placeholder="Digite sua mensagem..."
-                onkeypress="handleEnter(event)">
-            <button class="btn btn-primary" onclick="sendMessage()">Enviar</button>
+            <input type="text" id="messageInput" placeholder="Mensagem..." onkeypress="handleEnter(event)">
+            <button class="btn-send" id="sendBtn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
         </div>
     </div>
 
@@ -91,30 +269,106 @@
         const sessionId = 'sessao_' + Date.now();
         const chatBox = document.getElementById('chatBox');
         const messageInput = document.getElementById('messageInput');
-        let currentAgent = 'AgenteTriagem'; // Estado inicial
+        const typingIndicator = document.getElementById('typingIndicator');
+        const sendBtn = document.getElementById('sendBtn');
+        let currentAgent = 'AgenteTriagem';
+        let isProcessing = false;
+
+        window.onload = () => {
+            // Injeta automaticamente a primeira mensagem da Triagem na carga da página
+            internalSend("", true);
+        };
+
+        function showTyping() {
+            typingIndicator.style.display = 'block';
+            chatBox.scrollTop = chatBox.scrollHeight;
+            isProcessing = true;
+            messageInput.disabled = true;
+            sendBtn.classList.add('disabled');
+        }
+
+        function hideTyping() {
+            typingIndicator.style.display = 'none';
+            isProcessing = false;
+            messageInput.disabled = false;
+            sendBtn.classList.remove('disabled');
+            messageInput.focus();
+        }
+
+        function extractOptions(text) {
+            // Busca textos sugeridos dentro de parênteses como (Sim, Não) ou (Crédito, Câmbio)
+            const match = text.match(/\((.*?)\)/);
+            if (match) {
+                let rawOptions = match[1].split(/,|\bou\b/i);
+                return rawOptions.map(opt => opt.trim()).filter(opt => opt.length > 0 && opt.length < 30);
+            }
+
+            // Fallback para perguntas booleanas simples
+            if (text.toLowerCase().includes("sim ou não") || text.toLowerCase().includes("sim ou nao")) {
+                return ["Sim", "Não"];
+            }
+            return [];
+        }
 
         function appendMessage(text, sender) {
             const msgDiv = document.createElement('div');
             msgDiv.classList.add('message', sender);
-            msgDiv.textContent = text;
+
+            // Formatacao básica bold
+            let formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            msgDiv.innerHTML = formattedText;
             chatBox.appendChild(msgDiv);
+
+            if (sender === 'agent' && text !== "[Atendimento Finalizado]") {
+                const options = extractOptions(text);
+                if (options.length > 0) {
+                    const quickRepliesDiv = document.createElement('div');
+                    quickRepliesDiv.classList.add('quick-replies');
+
+                    options.forEach(opt => {
+                        const btn = document.createElement('button');
+                        btn.classList.add('quick-reply-btn');
+                        btn.textContent = opt;
+                        btn.onclick = () => {
+                            if (!isProcessing) sendQuickReply(opt);
+                        };
+                        quickRepliesDiv.appendChild(btn);
+                    });
+
+                    chatBox.appendChild(quickRepliesDiv);
+                }
+            }
+
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
+        function sendQuickReply(text) {
+            messageInput.value = text;
+            sendMessage();
+        }
+
         async function sendMessage() {
+            if (isProcessing) return;
             const text = messageInput.value.trim();
             if (!text) return;
 
             appendMessage(text, 'user');
             messageInput.value = '';
 
-            // Definir endpoint baseado no agente atual
-            let endpoint = 'http://localhost:8000/triagem/';
-            if (currentAgent === 'AgenteCredito') {
-                endpoint = 'http://localhost:8000/credito/';
-            }
+            // Esconde botões passados para manter o layout limpo
+            const oldReplies = document.querySelectorAll('.quick-replies');
+            oldReplies.forEach(r => r.style.display = 'none');
 
-            console.log("Enviando para:", endpoint);
+            await internalSend(text, false);
+        }
+
+        async function internalSend(text, isInit) {
+            let endpoint = 'http://localhost:8000/triagem/';
+            if (currentAgent === 'AgenteCredito') endpoint = 'http://localhost:8000/credito/';
+            else if (currentAgent === 'AgenteEntrevista') endpoint = 'http://localhost:8000/entrevista/';
+            else if (currentAgent === 'AgenteCambio') endpoint = 'http://localhost:8000/cambio/';
+
+            if (!isInit) showTyping();
 
             try {
                 const response = await fetch(endpoint, {
@@ -126,41 +380,47 @@
                     })
                 });
 
+                if (!isInit) hideTyping();
+
                 if (!response.ok) {
-                    // Tenta ler o erro
                     const errText = await response.text();
                     throw new Error('Erro na API: ' + response.status + ' ' + errText);
                 }
 
                 const data = await response.json();
 
-                if (data.resposta) {
+                if (data.resposta && data.resposta.trim() !== '') {
                     appendMessage(data.resposta, 'agent');
                 }
 
-                // Gerenciar Ação e Troca de Agente
                 if (data.acao === 'transferir') {
                     if (data.alvo) {
                         currentAgent = data.alvo;
                         console.log("Transferido para: " + currentAgent);
-                        // Opcional: Feedback visual de transferência
+                        // Chama recursivamente a proxima rota sem emitir mensagem do user para iniciar o estado local
+                        await internalSend("", true);
                     }
                 } else if (data.acao === 'encerrar') {
                     messageInput.disabled = true;
+                    sendBtn.classList.add('disabled');
+                    document.getElementById('globalActions').style.display = 'none';
                     appendMessage("[Atendimento Finalizado]", 'agent');
                 }
 
             } catch (error) {
+                if (!isInit) hideTyping();
                 console.error(error);
-                appendMessage("Erro ao conectar com o servidor: " + error.message, 'agent');
+                appendMessage("Erro ao conectar com o servidor.", 'agent');
             }
         }
 
         function handleEnter(e) {
-            if (e.key === 'Enter') sendMessage();
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+            }
         }
     </script>
-
 </body>
 
 </html>
