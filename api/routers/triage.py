@@ -4,14 +4,19 @@ from typing import Optional
 import pandas as pd
 import os
 import re
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 
+# Importar Sessão Compartilhada
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from sessao import obter_sessao, criar_sessao, atualizar_sessao
+
 # Configuração
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-router = APIRouter(prefix="/chat", tags=["Agente de Triagem"])
+router = APIRouter(prefix="/triagem", tags=["Agente de Triagem"])
 
 # Modelos
 class EntradaChat(BaseModel):
@@ -24,21 +29,17 @@ class SaidaChat(BaseModel):
     alvo: Optional[str] = None # nome do agente se houver transferência
     id_sessao: str
 
-# Sessão em Memória
-# Formato: {id_sessao: {estado: "SAUDACAO", tentativas: 0, dados_cliente: {}, cpf_temp: None}}
-SESSOES = {}
+# Configuração LLM
 MAX_TENTATIVAS = 3
 ARQUIVO_DADOS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "clientes.csv")
 
-# Configuração LLM
 def obter_llm():
-    chave_api = os.getenv("OPENROUTERKEY")
+    chave_api = os.getenv("GOOGLE_API_KEY")
     if not chave_api:
-        raise ValueError("A variável de ambiente OPENROUTERKEY não foi definida.")
-    return ChatOpenAI(
-        openai_api_key=chave_api,
-        openai_api_base="https://openrouter.ai/api/v1",
-        model_name="openai/gpt-3.5-turbo",
+        raise ValueError("A variável de ambiente GOOGLE_API_KEY não foi definida.")
+    return ChatGoogleGenerativeAI(
+        google_api_key=chave_api,
+        model="gemini-3-flash-preview",
         temperature=0.0
     )
 
@@ -75,17 +76,19 @@ async def endpoint_triagem(entrada: EntradaChat):
     id_sessao = entrada.id_sessao
     mensagem = entrada.mensagem.strip()
     
-    # Inicializa Sessão se não existir
-    if id_sessao not in SESSOES:
-        SESSOES[id_sessao] = {
+    # Inicializa Sessão via módulo compartilhado
+    sessao = obter_sessao(id_sessao)
+    if not sessao:
+        sessao = criar_sessao(id_sessao, {
             "estado": "SAUDACAO",
             "tentativas": 0,
             "dados_cliente": None,
-            "cpf_temp": None
-        }
+            "cpf_temp": None,
+            "agente_atual": "triagem"
+        })
     
-    sessao = SESSOES[id_sessao]
     estado = sessao["estado"]
+    # ... (resto da lógica usa 'sessao' localmente, que é referencia ao dict, entao funciona)
     resposta_texto = ""
     acao = "continuar"
     alvo = None

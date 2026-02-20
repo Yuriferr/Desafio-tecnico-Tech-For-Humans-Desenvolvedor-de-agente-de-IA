@@ -88,9 +88,10 @@
     </div>
 
     <script>
-        const sessionId = 'sessao_' + Date.now(); // Gera um ID único para a sessão atual
+        const sessionId = 'sessao_' + Date.now();
         const chatBox = document.getElementById('chatBox');
         const messageInput = document.getElementById('messageInput');
+        let currentAgent = 'AgenteTriagem'; // Estado inicial
 
         function appendMessage(text, sender) {
             const msgDiv = document.createElement('div');
@@ -107,8 +108,16 @@
             appendMessage(text, 'user');
             messageInput.value = '';
 
+            // Definir endpoint baseado no agente atual
+            let endpoint = 'http://localhost:8000/triagem/';
+            if (currentAgent === 'AgenteCredito') {
+                endpoint = 'http://localhost:8000/credito/';
+            }
+
+            console.log("Enviando para:", endpoint);
+
             try {
-                const response = await fetch('http://localhost:8000/chat/', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -117,19 +126,33 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('Erro na API');
+                if (!response.ok) {
+                    // Tenta ler o erro
+                    const errText = await response.text();
+                    throw new Error('Erro na API: ' + response.status + ' ' + errText);
+                }
 
                 const data = await response.json();
-                appendMessage(data.resposta, 'agent');
 
-                if (data.acao === 'encerrar') {
+                if (data.resposta) {
+                    appendMessage(data.resposta, 'agent');
+                }
+
+                // Gerenciar Ação e Troca de Agente
+                if (data.acao === 'transferir') {
+                    if (data.alvo) {
+                        currentAgent = data.alvo;
+                        console.log("Transferido para: " + currentAgent);
+                        // Opcional: Feedback visual de transferência
+                    }
+                } else if (data.acao === 'encerrar') {
                     messageInput.disabled = true;
-                    appendMessage("Atendimento finalizado.", 'agent');
+                    appendMessage("[Atendimento Finalizado]", 'agent');
                 }
 
             } catch (error) {
                 console.error(error);
-                appendMessage("Erro ao conectar com o servidor.", 'agent');
+                appendMessage("Erro ao conectar com o servidor: " + error.message, 'agent');
             }
         }
 

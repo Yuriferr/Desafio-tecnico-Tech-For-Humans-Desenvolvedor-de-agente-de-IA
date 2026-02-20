@@ -1,3 +1,15 @@
 {
-    "git.ignoreLimitWarning": true
+    "liveServer.settings.ignoreFiles": [
+        "**/*.csv",
+        "api/data/*",
+        ".vscode/**",
+        "**/*.py",
+        "**/*.pyc",
+        "**/__pycache__"
+    ],
+    "files.watcherExclude": {
+        "**/target": true,
+        "**/api/data/**": true,
+        "**/*.csv": true
+    }
 }

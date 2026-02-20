@@ -2,6 +2,6 @@ fastapi
 uvicorn
 langchain
 langchain-community
-langchain-openai
+langchain-google-genai
 python-dotenv
 pandas
