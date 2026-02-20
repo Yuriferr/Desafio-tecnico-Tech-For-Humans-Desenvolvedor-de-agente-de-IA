@@ -122,15 +122,15 @@ async def endpoint_entrevista(entrada: EntradaChat):
         Estrutura exigida do JSON:
         - "renda": número (float) do salário/rendimento mensal, ou null
         - "emprego": exatamente "formal", "autônomo" ou "desempregado", ou null
-        - "despesas": número (float) do custo fixo mensal, ou null
+        - "despesas": número (float) do custo fixo mensal, ou 0.0 caso diga que "não tem despesas", "0 despesas", "sem despesas", senão null
         - "dependentes": string Exatamente "0" (se disser que não tem, nenhum, sem dependentes), "1", "2" ou "3+", ou null se não falado
-        - "dividas": string "sim" ou "não", ou null
+        - "dividas": string "sim" ou "não" (mesmo se "sem dívidas", colocar "não"), ou null
         - "encerrar": boolean (true se desiste do banco inteiro, tchau, quer sair)
         - "voltar": boolean (true se apenas quer voltar para o menu inicial, opções globais, triagem)
         
         Importante: Responda APENAS com o JSON. Não adicione nenhum texto antes ou depois.
-        Exemplo de continuação:
-        {"renda": 5000.0, "emprego": "formal", "despesas": null, "dependentes": "1", "dividas": "não", "encerrar": false, "voltar": false}
+        Exemplo de continuação comum:
+        {"renda": 5000.0, "emprego": "formal", "despesas": 0.0, "dependentes": "0", "dividas": "não", "encerrar": false, "voltar": false}
         """
         dados_extraidos = consultar_llm(mensagem, sessao.get("historico", []), instrucao, formato="json")
         
@@ -156,13 +156,44 @@ async def endpoint_entrevista(entrada: EntradaChat):
         dados_acumulados = sessao.get("dados_entrevista", {})
         
         # Verifica e atualiza apenas os novos dados extraídos com sucesso
+        import re as regex_module
         if isinstance(dados_extraidos, dict):
+            # Extração defensiva com Regex direta da mensagem se o LLM falhar miseravelmente
+            numeros = regex_module.findall(r"[\d\.,]+", mensagem)
+            val_extraido = None
+            if numeros:
+                for num_str in numeros:
+                     clean_str = num_str
+                     if ',' in clean_str and '.' in clean_str:
+                         clean_str = clean_str.replace('.', '').replace(',', '.')
+                     elif ',' in clean_str:
+                         clean_str = clean_str.replace(',', '.')
+                     try: val_extraido = float(clean_str); break
+                     except: continue
+
             if dados_extraidos.get("renda") is not None:
                 try: dados_acumulados["renda"] = float(dados_extraidos["renda"])
                 except: pass
+            
             if dados_extraidos.get("despesas") is not None:
                  try: dados_acumulados["despesas"] = float(dados_extraidos["despesas"])
                  except: pass
+                 
+            # Tratamento avançado de bypass do Fallback (Caso pessoa não indique nominalmente e só sobrar um numero ou mande algo como '0 despesas')
+            if "sem despesa" in mensagem.lower() or "não tenho despesa" in mensagem.lower() or "0 despesa" in mensagem.lower():
+                dados_acumulados["despesas"] = 0.0
+            elif "sem renda" in mensagem.lower() or "0 renda" in mensagem.lower():
+                dados_acumulados["renda"] = 0.0
+                
+            if dados_acumulados.get("renda") is None and val_extraido is not None and "renda" in mensagem.lower():
+                dados_acumulados["renda"] = val_extraido
+            elif dados_acumulados.get("despesas") is None and val_extraido is not None and "despesa" in mensagem.lower():
+                dados_acumulados["despesas"] = val_extraido
+            elif val_extraido is not None:
+                if dados_acumulados.get("renda") is None and "despesas" in dados_acumulados:
+                     dados_acumulados["renda"] = val_extraido
+                elif dados_acumulados.get("despesas") is None and "renda" in dados_acumulados:
+                     dados_acumulados["despesas"] = val_extraido
             
             emprego = str(dados_extraidos.get("emprego", "")).lower()
             if "formal" in emprego: dados_acumulados["emprego"] = "formal"
@@ -172,15 +203,25 @@ async def endpoint_entrevista(entrada: EntradaChat):
             dep = str(dados_extraidos.get("dependentes", "")).lower()
             if dep in ["0", "1", "2", "3+"]: dados_acumulados["dependentes"] = dep
             else:
-                 # fallback limpeza dependentes
-                 if "3" in dep or "mais" in dep: dados_acumulados["dependentes"] = "3+"
-                 elif "2" in dep: dados_acumulados["dependentes"] = "2"
-                 elif "1" in dep: dados_acumulados["dependentes"] = "1"
-                 elif "0" in dep or "sem" in dep or "não" in dep or "nao" in dep or "nenhum" in dep: dados_acumulados["dependentes"] = "0"
+                 # fallback limpeza dependentes baseada puramente na intencao expressa
+                 msg_limpa = mensagem.lower()
+                 if "3" in msg_limpa or "mais" in msg_limpa or "três" in msg_limpa: dados_acumulados["dependentes"] = "3+"
+                 elif "2" in msg_limpa or "dois" in msg_limpa: dados_acumulados["dependentes"] = "2"
+                 elif "1" in msg_limpa or "um" in msg_limpa: dados_acumulados["dependentes"] = "1"
+                 elif "0" in msg_limpa or "sem dependente" in msg_limpa or "nenhum" in msg_limpa or "nao tem" in msg_limpa.replace("ã","a"): dados_acumulados["dependentes"] = "0"
+                 # Se a LLM tentou passar nulo, mas e extraímos que ele disse 0 literalmente "0 dependentes"
+                 if dados_acumulados.get("dependentes") is None and val_extraido == 0.0:
+                      dados_acumulados["dependentes"] = "0"
             
             div = str(dados_extraidos.get("dividas", "")).lower()
             if "sim" in div: dados_acumulados["dividas"] = "sim"
             elif "não" in div or "nao" in div: dados_acumulados["dividas"] = "não"
+            else:
+                 msg_limpa = mensagem.lower()
+                 if "sem divida" in msg_limpa.replace("í","i") or "nenhuma divida" in msg_limpa.replace("í","i") or "não tenho divida" in msg_limpa.replace("í","i").replace("ã","a"):
+                     dados_acumulados["dividas"] = "não"
+                 elif "tenho divida" in msg_limpa.replace("í","i") or "estou com divida" in msg_limpa.replace("í","i"):
+                     dados_acumulados["dividas"] = "sim"
 
         sessao["dados_entrevista"] = dados_acumulados
         
