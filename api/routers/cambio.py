@@ -79,21 +79,33 @@ async def endpoint_cambio(entrada: EntradaChat):
     alvo = None
 
     if sub_estado == "MENU" or sub_estado == "AGUARDANDO_MOEDA":
-        # Processar IA para extrair a moeda ou intenção de sair
-        instrucao = """
-        Você é um atendente de câmbio.
-        O cliente pediu uma cotação. Extraia o código ISO da moeda desejada com exatas 3 letras maiúsculas.
-        Exemplo de siglas: USD para Dólar, EUR para Euro, GBP para Libra, BTC para Bitcoin.
-        Se ele quiser consultar o Real para o Dólar, extraia "USD".
-        
-        Se o usuário quiser sair ou encerrar o banco inteiro, retorne exatamente "SAIR".
-        Se o usuário quiser ver outros serviços e falar com outros agentes, retorne exatamente "VOLTAR".
-        Se você não identificar nenhuma moeda com clareza, retorne "DESCONHECIDO".
-
-        Responda APENAS com a sigla de 3 letras maiúsculas, "SAIR", "VOLTAR" ou "DESCONHECIDO". Nada mais.
-        """
-        resultado_llm = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
-        codigo_moeda = resultado_llm.strip().upper()
+        # Bypass Rápido Expresso para botões da Interface
+        msg_lower = mensagem.lower()
+        if msg_lower == "outros serviços" or "menu" in msg_lower or "voltar" in msg_lower:
+            codigo_moeda = "VOLTAR"
+        elif "dólar" in msg_lower or "dolar" in msg_lower:
+            codigo_moeda = "USD"
+        elif "euro" in msg_lower:
+            codigo_moeda = "EUR"
+        elif "libra" in msg_lower:
+            codigo_moeda = "GBP"
+        else:
+            # Processar IA para extrair a moeda ou intenção de sair por correlação livre e países
+            instrucao = """
+            Você é um especialista em câmbio e geografia monetária.
+            O cliente pediu uma cotação. Extraia o código ISO da moeda desejada com exatas 3 letras maiúsculas.
+            Você deve deduzir a moeda pelo país se ele citar um. (ex: Inglaterra/Reino Unido = GBP, Europa = EUR, Japão = JPY).
+            Exemplo de siglas: USD para Dólar Americano, EUR para Euro, GBP para Libra Esterlina (Inglaterra), BTC para Bitcoin.
+            Se ele não falar de qual país é o Dólar, assuma USD.
+            
+            Se o usuário quiser sair ou encerrar, retorne exatamente "SAIR".
+            Se quiser ver outros serviços e voltar ao menu, retorne exatamente "VOLTAR".
+            Se você não identificar a moeda ou país com clareza, retorne "DESCONHECIDO".
+    
+            Responda APENAS com a sigla de 3 letras maiúsculas, "SAIR", "VOLTAR" ou "DESCONHECIDO". Nada mais.
+            """
+            resultado_llm = consultar_llm(mensagem, sessao.get("historico", []), instrucao)
+            codigo_moeda = resultado_llm.strip().upper()
 
         if "ERRO_LLM" in codigo_moeda:
             resposta_texto = "Meu sistema de câmbio está instável. Qual moeda deseja consultar?"
@@ -115,7 +127,7 @@ async def endpoint_cambio(entrada: EntradaChat):
              sucesso, nome_par, valor = obter_cotacao(codigo_moeda, "BRL")
              
              if sucesso:
-                 resposta_texto = f"Cotação de **{nome_par}**: R$ {valor:.4f}. Deseja pesquisar outra moeda? (Outros serviços)"
+                 resposta_texto = f"Cotação de **{nome_par}**: R$ {valor:.4f}. Qual outra moeda deseja consultar? (Dólar, Euro, Libra, Outros serviços)"
                  sessao["sub_estado_cambio"] = "AGUARDANDO_MOEDA"
              elif nome_par == "Erro ao consultar a API":
                  resposta_texto = "O provedor de cotações em tempo real está indisponível no momento. Pode tentar mais tarde? (Outros serviços)"

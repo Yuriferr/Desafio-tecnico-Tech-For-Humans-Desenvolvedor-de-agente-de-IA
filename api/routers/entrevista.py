@@ -120,9 +120,9 @@ async def endpoint_entrevista(entrada: EntradaChat):
         Se um dado não foi informado agora ou no histórico recente, coloque o valor como null.
         
         Estrutura exigida do JSON:
-        - "renda": número (float) do salário/rendimento mensal, ou null
-        - "emprego": exatamente "formal", "autônomo" ou "desempregado", ou null
-        - "despesas": número (float) do custo fixo mensal, ou 0.0 caso diga que "não tem despesas", "0 despesas", "sem despesas", senão null
+        - "renda": número (float) do valor ganho, salário ou rendimento (ex: se o usuário disser um valor alto solto como "10000", extraia 10000.0), ou null
+        - "emprego": exatamente "formal" (usar se ele disser CLT, carteira assinada, registrado), "autônomo" ou "desempregado", ou null
+        - "despesas": número (float) do custo fixo mensal, ou 0.0 caso diga que "não tem despesas", "não possuo despesas", "0 despesas", "sem despesas", senão null
         - "dependentes": string Exatamente "0" (se disser que não tem, nenhum, sem dependentes), "1", "2" ou "3+", ou null se não falado
         - "dividas": string "sim" ou "não" (mesmo se "sem dívidas", colocar "não"), ou null
         - "encerrar": boolean (true se desiste do banco inteiro, tchau, quer sair)
@@ -180,25 +180,26 @@ async def endpoint_entrevista(entrada: EntradaChat):
                  except: pass
                  
             # Tratamento avançado de bypass do Fallback (Caso pessoa não indique nominalmente e só sobrar um numero ou mande algo como '0 despesas')
-            if "sem despesa" in mensagem.lower() or "não tenho despesa" in mensagem.lower() or "0 despesa" in mensagem.lower():
+            msg_lower_limpa = mensagem.lower().replace("ã", "a").replace("í", "i")
+            if "sem despesa" in msg_lower_limpa or "nao tenho despesa" in msg_lower_limpa or "nao possuo despesa" in msg_lower_limpa or "0 despesa" in msg_lower_limpa:
                 dados_acumulados["despesas"] = 0.0
-            elif "sem renda" in mensagem.lower() or "0 renda" in mensagem.lower():
+            elif "sem renda" in msg_lower_limpa or "0 renda" in msg_lower_limpa:
                 dados_acumulados["renda"] = 0.0
                 
-            if dados_acumulados.get("renda") is None and val_extraido is not None and "renda" in mensagem.lower():
+            if dados_acumulados.get("renda") is None and val_extraido is not None and ("renda" in mensagem.lower() or "ganho" in mensagem.lower() or "recebo" in mensagem.lower()):
                 dados_acumulados["renda"] = val_extraido
             elif dados_acumulados.get("despesas") is None and val_extraido is not None and "despesa" in mensagem.lower():
                 dados_acumulados["despesas"] = val_extraido
-            elif val_extraido is not None:
-                if dados_acumulados.get("renda") is None and "despesas" in dados_acumulados:
+            elif val_extraido is not None and val_extraido > 100:
+                # Se o numero for consideravelmente grande (maior que 100) e ele não estiver classificado, inferimos que seja a Renda por eliminação pragmática
+                if dados_acumulados.get("renda") is None:
                      dados_acumulados["renda"] = val_extraido
-                elif dados_acumulados.get("despesas") is None and "renda" in dados_acumulados:
-                     dados_acumulados["despesas"] = val_extraido
             
             emprego = str(dados_extraidos.get("emprego", "")).lower()
-            if "formal" in emprego: dados_acumulados["emprego"] = "formal"
-            elif "autônomo" in emprego or "autonomo" in emprego: dados_acumulados["emprego"] = "autônomo"
-            elif "desempregado" in emprego: dados_acumulados["emprego"] = "desempregado"
+            msg_emprego = mensagem.lower()
+            if "formal" in emprego or "clt" in msg_emprego or "carteira assinada" in msg_emprego: dados_acumulados["emprego"] = "formal"
+            elif "autônomo" in emprego or "autonomo" in emprego or "uber" in msg_emprego: dados_acumulados["emprego"] = "autônomo"
+            elif "desempregado" in emprego or "sem emprego" in msg_emprego: dados_acumulados["emprego"] = "desempregado"
             
             dep = str(dados_extraidos.get("dependentes", "")).lower()
             if dep in ["0", "1", "2", "3+"]: dados_acumulados["dependentes"] = dep
